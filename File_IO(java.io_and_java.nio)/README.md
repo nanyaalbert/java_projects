@@ -1,6 +1,27 @@
 # Description
 This directory focuses on file input/output operations in Java using both java.io and java.nio packages.
 
+## NIO/RealTimeDirectoryMonitorAndAsynchronousLogger.java
+### Overview
+The Real-Time Directory Monitor and Asynchronous Logger is a Java program that monitors a specified directory for file creation, modification, and deletion events in real-time using Java NIO's WatchService. It logs these events asynchronously to log_file.txt with timestamps, using AsynchronousFileChannel for efficient, non-blocking I/O.
+
+### Features
+1. Monitors file creation (ENTRY_CREATE), modification (ENTRY_MODIFY), and deletion (ENTRY_DELETE) in the specified directory.
+2. Logs events to log_file.txt with timestamps in the format [yyyy-MM-dd HH:mm:ss] - Event kind: \<kind\>. File affected: \<file\>.
+3. Uses asynchronous I/O for logging to minimize performance impact.
+4. Validates directory existence and type before monitoring.
+5. Logs monitoring setup and errors to the console.
+
+### Notes
+- Monitors only files directly in the specified directory, not subdirectories.
+- Creates log_file.txt in the current working directory if it doesn't exist.
+- Handles OVERFLOW events and invalid WatchKey states.
+- Handles I/O and interruption exceptions.
+
+### Usage
+1. **Compile:** javac RealTimeDirectoryMonitorAndAsynchronousLogger.java
+2. **Run:** java RealTimeDirectoryMonitorAndAsynchronousLogger \<directory-path\> Example: java RealTimeDirectoryMonitorAndAsynchronousLogger /home/user/docs
+
 ## NIO/MediaFileOrganizer.java
 ### Overview
 The Media File Organizer is a Java utility that organizes media files (images, videos, audio) into a structured hierarchy based on file type and creation date. It supports formats like .jpg, .png, .mp4, .mkv, .mp3, and .wav, and creates a log file (media_organizer_log.txt) to track actions and errors. The program handles duplicates, deletes empty directories, and ensures proper permissions.
@@ -232,4 +253,5 @@ The Robust Text File Copier is a Java program that copies the contents of a sour
 
 ### Usage
 1. **Compile:** javac RobustTextFileCopier.java
+
 2. **Run:** java RobustTextFileCopier \<source-file\> \<destination-file\> Example: java RobustTextFileCopier input.txt output.txt
