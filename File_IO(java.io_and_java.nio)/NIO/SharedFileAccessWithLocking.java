@@ -18,7 +18,7 @@ public class SharedFileAccessWithLocking {
             System.out.println("Usage: java SharedFileAccessWithLocking < r | w > <file_path>");
             return;
         }
-        if (!args[0].equals("r") && !args[0].equals("w")) {
+        if (!args[0].equals("r") || !args[0].equals("w")) {
             System.out.println("Invalid access mode. Use 'r' for read or 'w' for write.");
             return;
         }
@@ -122,3 +122,4 @@ public class SharedFileAccessWithLocking {
     }
 
 }
+
