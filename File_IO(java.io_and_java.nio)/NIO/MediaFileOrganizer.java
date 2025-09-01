@@ -184,8 +184,10 @@ public class MediaFileOrganizer {
             if(!destDirectory.equals(null)){
                 Path destFilePath = destDirectory.resolve(sourceFile.getFileName());
                 if(Files.exists(destFilePath)){
-                    log("Duplicate found. Renaming to: " + destFilePath.getFileName());
-                    destFilePath = handleDuplicates(destFilePath);
+                    Path newDestFilePath = handleDuplicates(destFilePath);
+                    log("Duplicate found. Renaming to: " + newDestFilePath.getFileName());
+                    Files.move(sourceFile, newDestFilePath);
+                    return;
                 }
                 Files.move(sourceFile, destFilePath);
             } else log("Error: Destination directory is null");
@@ -231,3 +233,4 @@ public class MediaFileOrganizer {
         }
     }
 }
+
