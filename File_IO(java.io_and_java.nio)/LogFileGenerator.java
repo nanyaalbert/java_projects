@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.PrintWriter;
 
 public class LogFileGenerator {
-    private static FileWriter logFile;
     private static final String LOG_FILE_PATH = "application_log.txt";
     private static File file = new File(LOG_FILE_PATH);
 
@@ -32,3 +31,4 @@ public class LogFileGenerator {
     }
 
 }
+
