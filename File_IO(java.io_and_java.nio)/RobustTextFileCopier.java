@@ -79,10 +79,11 @@ public class RobustTextFileCopier {
             }
         }
         else if(!sourceFile.canRead()) {
-            System.out.println("Source file " + sourceFile.getName() + "cannot be read: " + sourceFile.getAbsolutePath());
+            System.out.println("Source file " + sourceFile.getName() + " cannot be read: " + sourceFile.getAbsolutePath());
         } else if (!destFile.canWrite()) {
             System.out.println("Destination file " + destFile.getName() + " cannot be written to: " + destFile.getAbsolutePath());
         }
     }
 
 }
+
