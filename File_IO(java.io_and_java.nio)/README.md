@@ -1,6 +1,27 @@
 # Description
 This directory focuses on file input/output operations in Java using both java.io and java.nio packages.
 
+## NIO/AutomatedFileBackupAndSynchronizationService.java
+### Overview
+The Automated File Backup and Synchronization Service is a Java program that monitors a specified directory for file creation, modification, and deletion events in real-time using Java NIO's WatchService. It automatically backs up files to a sibling directory with a _backup suffix and logs actions asynchronously to automated\_file\_backup\_log.txt using AsynchronousFileChannel.
+
+### Features
+1. Monitors file creation \(ENTRY\_CREATE\), modification \(ENTRY\_MODIFY\), and deletion \(ENTRY\_DELETE\) in the source directory.
+2. Creates a backup directory \(\<source_dir\>\_backup\) and copies existing files on startup.
+3. Synchronizes changes by copying modified/created files or deleting removed files in the backup directory.
+4. Logs events with timestamps in the format \[yyyy\-MM\-dd HH:mm:ss\] - \<message\> to automated\_file\_backup\_log.txt.
+5. Uses asynchronous I/O for logging to ensure non-blocking operations.
+
+### Notes
+- Monitors only files directly in the specified directory, not subdirectories.
+- Creates automated_file_backup_log.txt in the current working directory.
+- Handles OVERFLOW events and invalid WatchKey states.
+- Manages I/O and interruption exceptions.
+
+### Usage
+1. **Compile:** javac AutomatedFileBackupAndSynchronizationService.java
+2. **Run:** java AutomatedFileBackupAndSynchronizationService \<source\-directory\-path\>Example: java AutomatedFileBackupAndSynchronizationService /home/user/docs
+
 ## NIO/RealTimeDirectoryMonitorAndAsynchronousLogger.java
 ### Overview
 The Real-Time Directory Monitor and Asynchronous Logger is a Java program that monitors a specified directory for file creation, modification, and deletion events in real-time using Java NIO's WatchService. It logs these events asynchronously to log_file.txt with timestamps, using AsynchronousFileChannel for efficient, non-blocking I/O.
@@ -255,3 +276,4 @@ The Robust Text File Copier is a Java program that copies the contents of a sour
 1. **Compile:** javac RobustTextFileCopier.java
 
 2. **Run:** java RobustTextFileCopier \<source-file\> \<destination-file\> Example: java RobustTextFileCopier input.txt output.txt
+
