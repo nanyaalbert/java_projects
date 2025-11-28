@@ -93,7 +93,7 @@ public class XMLDigitalRecipeBookUsingDOM {
 
     private static boolean verifyXMLStructure(Document document){
         Element rootElement = document.getDocumentElement();
-        if(rootElement.getTagName() == "recipebook"){
+        if(rootElement.getTagName().equals("recipebook")){
             return true;
         }else{
             return false;
@@ -123,6 +123,125 @@ public class XMLDigitalRecipeBookUsingDOM {
         System.out.println(instructions.toString());
         Scanner scanner = new Scanner(System.in);
         scanner.nextLine();
+
+        Element rootElement = document.getDocumentElement();
+        int recipePosition = rootElement.getElementsByTagName("recipe").getLength() + 1;
+        Element newRecipeElement = recipePositionAndIDUpdater(document.createElement("recipe"), recipePosition);
+
+        System.out.println("Enter the recipe title:");
+        String recipeTitle = scanner.nextLine();
+        Element titleElement = document.createElement("title");
+        titleElement.setTextContent(recipeTitle);
+        newRecipeElement.appendChild(titleElement);
+
+        System.out.println("Enter the recipe description:");
+        String recipeDescription = scanner.nextLine();
+        Element descriptionElement = document.createElement("description");
+        descriptionElement.setTextContent(recipeDescription);
+        newRecipeElement.appendChild(descriptionElement);
+
+        int numberOfComponents;
+        while(true){
+            System.out.println("\nEnter the number of components in this recipe (at least 1):");
+            try {
+                numberOfComponents = Integer.parseInt(scanner.nextLine());
+                break;
+            } catch (Exception e) {
+                System.out.println("Invalid input: Please enter a valid number.");
+            }
+        }
+
+        for(int i = 0; i < numberOfComponents; i++){
+            System.out.println("\nEnter details for component " + (i + 1));
+            Element newComponentElement = componentPositionAndIDUpdater(document.createElement("component"), i + 1, newRecipeElement.getAttribute("id"));
+            System.out.println("Enter the component name:");
+            Element newComponentNameElement = document.createElement("name");
+            newComponentNameElement.setTextContent(scanner.nextLine());
+            newComponentElement.appendChild(newComponentNameElement);
+            newRecipeElement.appendChild(newComponentElement);
+
+            System.out.println("\nNow let's add ingredients for this component.");
+            System.out.println("Press [enter] after each filling the name and quantity for each ingredient. type done and press [enter] when finished.");
+            int ingredientPosition = 0;
+            while(true){
+                System.out.println("Enter the ingredient name");
+                String ingredientName = scanner.nextLine();
+                if(ingredientName.equalsIgnoreCase("done")){
+                    break;
+                }
+                System.out.println("Enter the ingredient quantity (e.g., 2 cups, 1 tablespoon, etc.):");
+                String ingredientQuantity = scanner.nextLine();
+                ingredientPosition++;
+                Element newIngredientElement = ingredientPositionAndIDUpdater(document.createElement("ingredient"), ingredientPosition, newComponentElement.getAttribute("id"));
+                Element ingredientNameElement = document.createElement("name");
+                ingredientNameElement.setTextContent(ingredientName);
+                newIngredientElement.appendChild(ingredientNameElement);
+                Element ingredientQuantityElement = document.createElement("quantity");
+                ingredientQuantityElement.setTextContent(ingredientQuantity);
+                newIngredientElement.appendChild(ingredientQuantityElement);
+                newComponentElement.appendChild(newIngredientElement);
+            }
+
+            System.out.println("\nNow let's add preparation instructions for this component.");
+            System.out.println("Press [enter] after each instruction step. type done and press [enter] when finished.");
+            int instructionPosition = 0;
+            while(true){
+                System.out.println("Enter instruction step");
+                String instructionStep = scanner.nextLine();
+                if(instructionStep.equalsIgnoreCase("done")){
+                    break;
+                }
+                instructionPosition++;
+                Element newInstructionElement = instructionPositionAndIDUpdater(document.createElement("instruction"), instructionPosition, newComponentElement.getAttribute("id"));
+                newInstructionElement.setTextContent(instructionStep);
+                newComponentElement.appendChild(newInstructionElement);
+            }
+        }
+        rootElement.appendChild(newRecipeElement);
+
+        saveToFile(recipeFilePath);
+        scanner.close();
+    }
+
+    private static Element recipePositionAndIDUpdater(Element recipeElement, int position){
+        recipeElement.setAttribute("position", Integer.toString(position));
+        recipeElement.setAttribute("id", "r" + position);
+        return recipeElement;
+    }
+
+    private static Element componentPositionAndIDUpdater(Element componentElement, int position, String recipeElementID){
+        componentElement.setAttribute("position", Integer.toString(position));
+        componentElement.setAttribute("id", recipeElementID + "c" + position);
+        return componentElement;
+    }
+
+    private static Element ingredientPositionAndIDUpdater(Element ingredientElement, int position, String componentElementID){
+        ingredientElement.setAttribute("position", Integer.toString(position));
+        ingredientElement.setAttribute("id", componentElementID + "i" + position);
+        return ingredientElement;
+    }
+
+    private static Element instructionPositionAndIDUpdater(Element instructionElement, int position, String componentElementID){
+        instructionElement.setAttribute("position", Integer.toString(position));
+        instructionElement.setAttribute("id", componentElementID + "s" + position);
+        return instructionElement;
+    }
+
+    private static void saveToFile(String filePath){
+        try {
+            File recipeFile = new File(filePath);
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            Transformer transformer = transformerFactory.newTransformer();
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+            transformer.setOutputProperty("{[http://xml.apache.org/xslt](http://xml.apache.org/xslt)}indent-amount", "4");
+            transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+            transformer.setOutputProperty(OutputKeys.VERSION, "1.0");
+            DOMSource source = new DOMSource(document);
+            StreamResult result = new StreamResult(recipeFile);
+            transformer.transform(source, result);
+        } catch (Exception e) {
+            System.out.println("error occured while saving recipe: " + e.getMessage());
+        }
     }
 
 }
