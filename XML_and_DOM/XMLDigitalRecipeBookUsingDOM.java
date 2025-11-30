@@ -17,10 +17,12 @@ public class XMLDigitalRecipeBookUsingDOM {
     private static DocumentBuilderFactory factory;
     private static DocumentBuilder builder;
     private static Document document;
+    private static final Scanner scanner = new Scanner(System.in);
     private static final String recipeFilePath = "recipebook.xml";
     
     public static void main(String[] args){
         InitialStartUp();
+        scanner.close();
     }
 
     private static void InitialStartUp(){
@@ -40,8 +42,30 @@ public class XMLDigitalRecipeBookUsingDOM {
         System.out.println("\t3. exit application");
         System.out.println("Enter choice (1-3):");
 
+        while(true){
+            switch(scanner.nextLine()){
+                case "1" -> {
+                    addNewRecipe();
+                    break;
+                }
+                case "2" -> {
+                    manageRecipes(document);
+                    break;
+                }
+                case "3" -> {
+                    exitApplication();
+                    break;
+                }
+                default -> {
+                    System.out.println("invalid choice, please enter a valid option (1-3):");
+                    continue;
+                }
+            }
+            break;
+        }
+
         //addNewRecipe();
-        manageRecipes(document);
+        //manageRecipes(document);
     }
 
     private static boolean loadRecipeDocument(String filePath){
@@ -122,7 +146,6 @@ public class XMLDigitalRecipeBookUsingDOM {
         instructions.append("\nWe will go through this structure step-by-step.\n");
         instructions.append("\nPress Enter to continue...");
         System.out.println(instructions.toString());
-        Scanner scanner = new Scanner(System.in);
         scanner.nextLine();
 
         Element rootElement = document.getDocumentElement();
@@ -133,12 +156,14 @@ public class XMLDigitalRecipeBookUsingDOM {
         String recipeTitle = scanner.nextLine();
         Element titleElement = document.createElement("title");
         titleElement.setTextContent(recipeTitle);
+        titleElement.setAttribute("id", newRecipeElement.getAttribute("id") + "title");
         newRecipeElement.appendChild(titleElement);
 
         System.out.println("Enter the recipe description:");
         String recipeDescription = scanner.nextLine();
         Element descriptionElement = document.createElement("description");
         descriptionElement.setTextContent(recipeDescription);
+        descriptionElement.setAttribute("id", newRecipeElement.getAttribute("id") + "description");
         newRecipeElement.appendChild(descriptionElement);
 
         int numberOfComponents;
@@ -158,6 +183,7 @@ public class XMLDigitalRecipeBookUsingDOM {
             System.out.println("Enter the component name:");
             Element newComponentNameElement = document.createElement("name");
             newComponentNameElement.setTextContent(scanner.nextLine());
+            newComponentNameElement.setAttribute("id", newComponentElement.getAttribute("id") + "name");
             newComponentElement.appendChild(newComponentNameElement);
             newRecipeElement.appendChild(newComponentElement);
 
@@ -176,9 +202,11 @@ public class XMLDigitalRecipeBookUsingDOM {
                 Element newIngredientElement = ingredientPositionAndIDUpdater(document.createElement("ingredient"), ingredientPosition, newComponentElement.getAttribute("id"));
                 Element ingredientNameElement = document.createElement("name");
                 ingredientNameElement.setTextContent(ingredientName);
+                ingredientNameElement.setAttribute("id", newIngredientElement.getAttribute("id") + "name");
                 newIngredientElement.appendChild(ingredientNameElement);
                 Element ingredientQuantityElement = document.createElement("quantity");
                 ingredientQuantityElement.setTextContent(ingredientQuantity);
+                ingredientQuantityElement.setAttribute("id", newIngredientElement.getAttribute("id") + "quantity");
                 newIngredientElement.appendChild(ingredientQuantityElement);
                 newComponentElement.appendChild(newIngredientElement);
             }
@@ -201,7 +229,8 @@ public class XMLDigitalRecipeBookUsingDOM {
         rootElement.appendChild(newRecipeElement);
 
         saveToFile();
-        scanner.close();
+        System.out.println("\nReturning to main menu\n");
+        homeMenu();
     }
   
     private static void manageRecipes(Document document){
@@ -221,7 +250,6 @@ public class XMLDigitalRecipeBookUsingDOM {
         System.out.println("\t2. edit recipes");
         System.out.println("\t3. delete recipe");
         System.out.println("Enter choice (1-3) or type 'home' to return to main menu");
-        Scanner scanner = new Scanner(System.in);
         outerLoop:
         while(true){
             switch(scanner.nextLine()){
@@ -241,7 +269,24 @@ public class XMLDigitalRecipeBookUsingDOM {
                         continue innerLoop;
                     }
                 }
-                case "2" -> {}
+                case "2" -> {
+                    innerLoop:
+                    while(true){
+                        System.out.println("Enter the recipe ID to view:");
+                        String recipeID = scanner.nextLine();
+                        for(int i = 0; i < recipeList.getLength(); i++){
+                            Element recipeElement = (Element) recipeList.item(i);
+                            if(recipeElement.getAttribute("id").equalsIgnoreCase(recipeID)){
+                                viewSingleRecipeWithIDDetails(recipeElement);
+                                saveToFile();
+                                break outerLoop;
+                            }
+                        }
+                        System.out.println("We couldn't find a recipe with that ID. Please try again.");
+                        continue innerLoop;
+                    }
+
+                }
                 case "3" -> {
                     int deletedRecipePosition = -1;
                     int boundaryElementPosition = -1;
@@ -300,21 +345,26 @@ public class XMLDigitalRecipeBookUsingDOM {
                     break outerLoop;
                     
                 }
-                case "home" -> homeMenu();
+                case "home" -> {
+                    homeMenu();}
                 default -> {
                     System.out.println("invalid choice, returning to main menu");
                     homeMenu();
                 }
             }
         }
-        scanner.close();
+        System.out.println("\nReturning to main menu\n");
+        homeMenu();
+        
     }
 
     private static void viewSingleRecipe(Element recipeElement){
+        System.out.println("--------------------------------");
         System.out.println("Recipe title: \n" + recipeElement.getElementsByTagName("title").item(0).getTextContent());
         System.out.println("Recipe description: \n" + recipeElement.getElementsByTagName("description").item(0).getTextContent());
         NodeList components = recipeElement.getElementsByTagName("component");
         System.out.println();
+        System.out.println("--------------------------------");
         System.out.println("This recipe has " + components.getLength() + " components.");
         for(int i = 0; i < components.getLength(); i++){
             Element componentElement = (Element) components.item(i);
@@ -332,8 +382,137 @@ public class XMLDigitalRecipeBookUsingDOM {
                 Element instructionElement = (Element) instructions.item(k);
                 System.out.println("\tStep " + (k + 1) + ": " + instructionElement.getTextContent());
             }
+            System.out.println("--------------------------------");
             System.out.println();
         }
+    }
+
+    private static void viewSingleRecipeWithIDDetails(Element recipeElement){
+        String titleElementID = "";
+        String descriptionElementID = "";
+        String componentElementNameID = "";
+        String ingredientElementNameID = "";
+        String ingredientElementQuantityID = "";
+        String instructionElementID = "";
+        Element componentNameElement = null;
+        Element ingredientNameElement = null;
+        Element ingredientQuantityElement = null;
+        Element instructionElement = null;
+
+        Element titleElement = (Element) recipeElement.getElementsByTagName("title").item(0);
+        titleElementID = titleElement.getAttribute("id");
+        System.out.println("--------------------------------");
+        System.out.println("Recipe title ID: " + titleElementID);
+        System.out.println("Recipe title: " + titleElement.getTextContent());
+        System.out.println("--------------------------------");
+        Element descriptionElement = (Element) recipeElement.getElementsByTagName("description").item(0);
+        descriptionElementID = descriptionElement.getAttribute("id");
+        System.out.println("Recipe description ID: " + descriptionElementID);
+        System.out.println("Recipe description: " + descriptionElement.getTextContent());
+        System.out.println("--------------------------------");
+        NodeList components = recipeElement.getElementsByTagName("component");
+        System.out.println();
+        System.out.println("This recipe has " + components.getLength() + " components.");
+        System.out.println("--------------------------------");
+        for(int i = 0; i < components.getLength(); i++){
+            Element componentElement = (Element) components.item(i);
+            componentNameElement = (Element) componentElement.getElementsByTagName("name").item(0);
+            componentElementNameID = componentNameElement.getAttribute("id");
+            System.out.println("Component " + (i + 1) + " name ID: " + componentElementNameID);
+            System.out.println("Component " + (i + 1) + " name: " + componentNameElement.getTextContent());
+            NodeList ingredients = componentElement.getElementsByTagName("ingredient");
+            System.out.println("\nThis component has " + ingredients.getLength() + " ingredients:");
+            for(int j = 0; j < ingredients.getLength(); j++){
+                Element ingredientElement = (Element) ingredients.item(j);
+                ingredientNameElement = (Element) ingredientElement.getElementsByTagName("name").item(0);
+                ingredientQuantityElement = (Element) ingredientElement.getElementsByTagName("quantity").item(0);
+                ingredientElementNameID = ingredientNameElement.getAttribute("id");
+                ingredientElementQuantityID = ingredientQuantityElement.getAttribute("id");
+                System.out.println("\tIngredient " + (j + 1) + " name ID " + ingredientElementNameID);                
+                System.out.println("\tIngredient " + (j + 1) + " name: " + ingredientNameElement.getTextContent());
+                System.out.println("\tIngredient " + (j + 1) + " quanttity ID " + ingredientElementQuantityID);
+                System.out.println("\tIngredient quantity ID " + ingredientElementQuantityID);
+                System.out.println("\tIngredient " + (j + 1) + " quantity: " + ingredientQuantityElement.getTextContent());
+            }
+            System.out.println();
+            NodeList instructions = componentElement.getElementsByTagName("instruction");
+            System.out.println("This component has " + instructions.getLength() + " preparation steps:");
+            for(int k = 0; k < instructions.getLength(); k++){
+                instructionElement = (Element) instructions.item(k);
+                instructionElementID = instructionElement.getAttribute("id");
+                System.out.println("\tInstruction step " + (k + 1) + " ID: " + instructionElementID);
+                System.out.println("\tStep " + (k + 1) + ": " + instructionElement.getTextContent());
+            }
+            System.out.println("--------------------------------");
+            System.out.println();
+        }
+        while(true){
+            System.out.println("Enter an ID to edit the content of that element, or type 'exit' to return to main menu:");
+            String input = scanner.nextLine();
+            if(input.equalsIgnoreCase(titleElementID) && !titleElementID.isBlank()){
+                String oldContent  = titleElement.getTextContent();
+                System.out.println("former title is: " + oldContent);
+                System.out.println("Enter new title");
+                String newTitle = scanner.nextLine();
+                titleElement.setTextContent(newTitle);
+                System.out.println("new title is: " + titleElement.getTextContent());
+                break;
+            }
+            else if(input.equalsIgnoreCase(descriptionElementID) && !descriptionElementID.isBlank()){
+                String oldContent  = descriptionElement.getTextContent();
+                System.out.println("former description is: " + oldContent);
+                System.out.println("Enter new description");
+                String newDescription = scanner.nextLine();
+                descriptionElement.setTextContent(newDescription);
+                System.out.println("new description is: " + descriptionElement.getTextContent());
+                break;
+            }
+            else if(input.equalsIgnoreCase(componentElementNameID) && !componentElementNameID.isBlank()){
+                String oldContent  = componentNameElement.getTextContent();
+                System.out.println("former component name is: " + oldContent);
+                System.out.println("Enter new component name");
+                String newComponentName = scanner.nextLine();
+                componentNameElement.setTextContent(newComponentName);
+                System.out.println("new component name is: " + componentNameElement.getTextContent());
+                break;
+            }
+            else if(input.equalsIgnoreCase(ingredientElementNameID) && !ingredientElementNameID.isBlank()){
+                String oldContent  = ingredientNameElement.getTextContent();
+                System.out.println("former ingredient name is: " + oldContent);
+                System.out.println("Enter new ingredient name");
+                String newIngredientName = scanner.nextLine();
+                ingredientNameElement.setTextContent(newIngredientName);
+                System.out.println("new ingredient name is: " + ingredientNameElement.getTextContent());
+                break;
+            }
+            else if(input.equalsIgnoreCase(ingredientElementQuantityID) && !ingredientElementQuantityID.isBlank()){
+                String oldContent  = ingredientQuantityElement.getTextContent();
+                System.out.println("former ingredient quantity is: " + oldContent);
+                System.out.println("Enter new ingredient quantity");
+                String newIngredientQuantity = scanner.nextLine();
+                ingredientQuantityElement.setTextContent(newIngredientQuantity);
+                System.out.println("new ingredient quantity is: " + ingredientQuantityElement.getTextContent());
+                break;
+            }
+            else if(input.equalsIgnoreCase(instructionElementID) && !instructionElementID.isBlank()){
+                String oldContent  = instructionElement.getTextContent();
+                System.out.println("former instruction step is: " + oldContent);
+                System.out.println("Enter new instruction step");
+                String newInstructionStep = scanner.nextLine();
+                instructionElement.setTextContent(newInstructionStep);
+                System.out.println("new instruction step is: " + instructionElement.getTextContent());
+                break;
+            }
+            else if(input.equalsIgnoreCase("exit")){
+                homeMenu();
+                break;
+            }
+            else{
+                System.out.println("We couldn't find an element with that ID. Please try again.");
+                continue;
+            }
+        }
+        System.out.println();
     }
 
     private static void exitApplication(){
