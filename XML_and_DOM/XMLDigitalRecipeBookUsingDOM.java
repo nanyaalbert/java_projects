@@ -10,6 +10,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 public class XMLDigitalRecipeBookUsingDOM {
@@ -199,7 +200,7 @@ public class XMLDigitalRecipeBookUsingDOM {
         }
         rootElement.appendChild(newRecipeElement);
 
-        saveToFile(recipeFilePath);
+        saveToFile();
         scanner.close();
     }
   
@@ -241,7 +242,64 @@ public class XMLDigitalRecipeBookUsingDOM {
                     }
                 }
                 case "2" -> {}
-                case "3" -> {}
+                case "3" -> {
+                    int deletedRecipePosition = -1;
+                    int boundaryElementPosition = -1;
+                    innerLoop:
+                    while(true){
+                        System.out.println("Enter the recipe ID to delete:");
+                        String recipeID = scanner.nextLine();
+                        for(int i = 0; i < recipeList.getLength(); i++){
+                            Element recipeElement = (Element) recipeList.item(i);                                                      
+
+                            if(recipeElement.getAttribute("id").equalsIgnoreCase(recipeID)){
+                                deletedRecipePosition = Integer.parseInt(recipeElement.getAttribute("position"));
+                                if(recipeList.getLength() > 1 && deletedRecipePosition != 1){
+                                    boundaryElementPosition = deletedRecipePosition - 1;
+                                } else if(recipeList.getLength() > 1 && deletedRecipePosition != recipeList.getLength()){
+                                    boundaryElementPosition = deletedRecipePosition - 1;
+                                } else if(recipeList.getLength() > 1 && deletedRecipePosition == 1){
+                                    boundaryElementPosition = deletedRecipePosition;
+                                }
+                                rootElement.removeChild(recipeElement);
+                                saveToFile();
+                                System.out.println("Recipe with ID " + recipeID + " has been deleted.");
+                                break innerLoop;
+                            }                            
+                        }
+                        System.out.println("We couldn't find a recipe with that ID. Please try again.");
+                        continue innerLoop;
+                    }
+                    if(boundaryElementPosition != -1){
+                        for(int j = boundaryElementPosition; j < recipeList.getLength(); j++){
+                            Element recipeElementForPositionUpdate = (Element) recipeList.item(j);
+                            recipeElementForPositionUpdate = (Element) recipePositionAndIDUpdater(recipeElementForPositionUpdate, (j + 1));
+                            NodeList recipeChildList = recipeElementForPositionUpdate.getChildNodes();
+                            for(int k = 0; k < recipeChildList.getLength(); k++){
+                                if(recipeChildList.item(k).getNodeType() == Node.ELEMENT_NODE){
+                                    Element recipeChildElement = (Element) recipeChildList.item(k);
+                                    if(recipeChildElement.getTagName().equals("component")){
+                                        Element componentElementForPositionUpdate = (Element) componentPositionAndIDUpdater(recipeChildElement, Integer.parseInt(recipeChildElement.getAttribute("position")), recipeElementForPositionUpdate.getAttribute("id"));
+                                        NodeList componentChildList = recipeChildElement.getChildNodes();
+                                        for(int l = 0; l < componentChildList.getLength(); l++){
+                                            if(componentChildList.item(l).getNodeType() == Node.ELEMENT_NODE){
+                                                Element componentChildElement = (Element) componentChildList.item(l);
+                                                if(componentChildElement.getTagName().equals("ingredient")){
+                                                    componentChildElement = (Element) ingredientPositionAndIDUpdater(componentChildElement, Integer.parseInt(componentChildElement.getAttribute("position")), componentElementForPositionUpdate.getAttribute("id"));
+                                                } else if(componentChildElement.getTagName().equals("instruction")){
+                                                    componentChildElement = (Element) instructionPositionAndIDUpdater(componentChildElement, Integer.parseInt(componentChildElement.getAttribute("position")), componentElementForPositionUpdate.getAttribute("id"));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    saveToFile();
+                    break outerLoop;
+                    
+                }
                 case "home" -> homeMenu();
                 default -> {
                     System.out.println("invalid choice, returning to main menu");
@@ -307,9 +365,10 @@ public class XMLDigitalRecipeBookUsingDOM {
         return instructionElement;
     }
 
-    private static void saveToFile(String filePath){
+    private static void saveToFile(){
         try {
-            File recipeFile = new File(filePath);
+            File recipeFile = new File(recipeFilePath);
+            removeWhiteSpaceNodes(document.getDocumentElement());
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty(OutputKeys.INDENT, "yes");
@@ -321,6 +380,18 @@ public class XMLDigitalRecipeBookUsingDOM {
             transformer.transform(source, result);
         } catch (Exception e) {
             System.out.println("error occured while saving recipe: " + e.getMessage());
+        }
+    }
+
+    private static void removeWhiteSpaceNodes(Node node){
+        NodeList childNodes = node.getChildNodes();
+        for(int i = childNodes.getLength() - 1; i >= 0; i--){
+            if((childNodes.item(i).getNodeType() == Node.TEXT_NODE) && childNodes.item(i).getNodeValue().trim().isEmpty()){
+                childNodes.item(i).getParentNode().removeChild(childNodes.item(i));
+            } else if(childNodes.item(i).getNodeType() == Node.ELEMENT_NODE){
+                removeWhiteSpaceNodes(childNodes.item(i));
+            }
+
         }
     }
 
