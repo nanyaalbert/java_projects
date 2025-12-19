@@ -22,37 +22,38 @@ public class AutomatedFileBackupAndSynchronizationService {
     private static Path sourceDir;
     private static Path backupDir;
 
-    public static void main(String[] args){
-        if(args.length != 1){
+    public static void main(String[] args) {
+        if (args.length != 1) {
             System.out.println("Usage: java AutomatedFileBackupAndSynchronizationService <source_directory_path>");
             return;
         }
 
         sourceDir = Paths.get(args[0]);
-        if(!Files.exists(sourceDir)){
+        if (!Files.exists(sourceDir)) {
             System.out.println("Source directory does not exist: " + sourceDir.toAbsolutePath());
             return;
         }
 
-        if(!Files.isDirectory(sourceDir)){
+        if (!Files.isDirectory(sourceDir)) {
             System.out.println("Source path is not a directory: " + sourceDir.toAbsolutePath());
             return;
         }
 
         System.out.println("This program only backs up files in the specified directory, not its subdirectories.");
-        System.out.println("Backup directory will be created as a sibling to the source directory with '_backup' suffix.");
+        System.out.println(
+                "Backup directory will be created as a sibling to the source directory with '_backup' suffix.");
         System.out.println();
 
         setupBackDir(sourceDir);
 
-        try{
+        try {
             WatchService watcher = FileSystems.getDefault().newWatchService();
-            sourceDir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE, 
-                                        StandardWatchEventKinds.ENTRY_MODIFY, 
-                                        StandardWatchEventKinds.ENTRY_DELETE);
+            sourceDir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_MODIFY,
+                    StandardWatchEventKinds.ENTRY_DELETE);
             log("Directory monitoring set up for: " + sourceDir.toAbsolutePath());
 
-            while(true){
+            while (true) {
                 WatchKey key;
 
                 try {
@@ -64,11 +65,11 @@ public class AutomatedFileBackupAndSynchronizationService {
                 }
 
                 // Process the events for the retrieved key
-                for(WatchEvent<?> event : key.pollEvents()){
+                for (WatchEvent<?> event : key.pollEvents()) {
                     WatchEvent.Kind<?> kind = event.kind();
 
                     // This is important to handle a key being invalid
-                    if(kind == StandardWatchEventKinds.OVERFLOW){
+                    if (kind == StandardWatchEventKinds.OVERFLOW) {
                         continue;
                     }
 
@@ -79,13 +80,13 @@ public class AutomatedFileBackupAndSynchronizationService {
                     Path filename = ev.context();
 
                     // Perform the appropriate action based on the event kind
-                    if(kind == StandardWatchEventKinds.ENTRY_CREATE){
+                    if (kind == StandardWatchEventKinds.ENTRY_CREATE) {
                         log("File created: " + filename);
                         backupFile(sourceDir.resolve(filename), backupDir.resolve(filename));
-                    } else if(kind == StandardWatchEventKinds.ENTRY_MODIFY){
+                    } else if (kind == StandardWatchEventKinds.ENTRY_MODIFY) {
                         log("File modified: " + filename);
                         backupFile(sourceDir.resolve(filename), backupDir.resolve(filename));
-                    } else if(kind == StandardWatchEventKinds.ENTRY_DELETE){
+                    } else if (kind == StandardWatchEventKinds.ENTRY_DELETE) {
                         log("File deleted: " + filename);
                         deleteBackupFile(backupDir.resolve(filename));
                     }
@@ -94,21 +95,20 @@ public class AutomatedFileBackupAndSynchronizationService {
                 // Reset the key to continue receiving events
                 boolean valid = key.reset();
 
-                if(!valid){
+                if (!valid) {
                     break; // The key is no longer valid, exit the loop
                 }
             }
 
-        } catch(IOException ex){
+        } catch (IOException ex) {
             log("Error occured while setting up directory monitoring for: " + sourceDir.toAbsolutePath());
         }
-        
 
     }
 
-    public static void setupBackDir(Path sourceDir){
+    public static void setupBackDir(Path sourceDir) {
         try {
-            backupDir = sourceDir.resolveSibling(sourceDir.getFileName() +"_backup");
+            backupDir = sourceDir.resolveSibling(sourceDir.getFileName() + "_backup");
             if (!Files.exists(backupDir)) {
                 log("Creating backup directory: " + backupDir.toAbsolutePath());
                 Files.createDirectory(backupDir);
@@ -123,27 +123,27 @@ public class AutomatedFileBackupAndSynchronizationService {
         }
     }
 
-    public static void backupExistingFiles(Path sourceDir, Path backupDir){
+    public static void backupExistingFiles(Path sourceDir, Path backupDir) {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(sourceDir)) {
             log("Backing up existing files from: " + sourceDir.toAbsolutePath() + " to: " + backupDir.toAbsolutePath());
-            for(Path entry : stream){
-                if(Files.isRegularFile(entry)){
+            for (Path entry : stream) {
+                if (Files.isRegularFile(entry)) {
                     backupFile(entry, backupDir.resolve(entry.getFileName()));
                 }
             }
-            log("Finished backing up existing files.");            
+            log("Finished backing up existing files.");
         } catch (Exception ex) {
             log("Failed to backup existing files. Error: " + ex.getMessage());
         }
     }
 
-    private static void backupFile(Path source, Path destination){
+    private static void backupFile(Path source, Path destination) {
         try {
-            if(Files.isRegularFile(source)){
+            if (Files.isRegularFile(source)) {
                 Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
                 log("Backup created for file: " + source.getFileName() + " at " + destination.toAbsolutePath());
             }
-            
+
         } catch (IOException e) {
             log("Failed to create backup for file: " + source.getFileName() + ". Error: " + e.getMessage());
         }
@@ -151,7 +151,7 @@ public class AutomatedFileBackupAndSynchronizationService {
 
     private static void deleteBackupFile(Path backupFile) {
         try {
-            if(Files.isRegularFile(backupFile)){
+            if (Files.isRegularFile(backupFile)) {
                 Files.deleteIfExists(backupFile);
                 log("Backup deleted for file: " + backupFile.getFileName());
             }
@@ -165,12 +165,14 @@ public class AutomatedFileBackupAndSynchronizationService {
      *
      * @param msg the message to log
      */
-    private static void log(String msg){
+    private static void log(String msg) {
 
-        String logEntry = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " - " + msg + System.lineSeparator();
+        String logEntry = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " - " + msg
+                + System.lineSeparator();
         ByteBuffer buffer = ByteBuffer.wrap(logEntry.getBytes());
         System.out.println("Attempting asynchronous write to file");
-        try (AsynchronousFileChannel channel = AsynchronousFileChannel.open(logFilePath, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
+        try (AsynchronousFileChannel channel = AsynchronousFileChannel.open(logFilePath, StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE)) {
             channel.write(buffer, channel.size(), null, new CompletionHandler<Integer, Void>() {
                 @Override
                 public void completed(Integer result, Void attachment) {
