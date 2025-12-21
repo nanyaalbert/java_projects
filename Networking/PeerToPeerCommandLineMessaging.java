@@ -15,13 +15,14 @@ public class PeerToPeerCommandLineMessaging {
         final String HANDSHAKE = "P2PCLIChat";
         final String MESSAGESIGNAL = "1";
         final String EXITSIGNAL = "0";
+        final int PORT = 1234;
+
         System.out.println("Welcome to the Peer to Peer Command Line Messaging");
         System.out.println("Do you want to start as \n\t1. Server\n\t2. Client");
         System.out.println("Enter a number that corresponds to your choice");
         mainloop: while (true) {
             switch (userInput.nextLine()) {
                 case "1" -> {
-                    final int PORT = 1234;
                     try (ServerSocketChannel serverChannel = ServerSocketChannel.open()) {
                         serverChannel.bind(new InetSocketAddress(PORT));
                         serverChannel.configureBlocking(false);
@@ -29,10 +30,11 @@ public class PeerToPeerCommandLineMessaging {
                         System.out.println("Waiting for connections...");
                         innerloop: while (true) {
                             SocketChannel socketChannel = serverChannel.accept();
-                            if (socketChannel == null)
-                                Thread.sleep(2000);
-                            else {
-                                socketChannel.write(sendBuffer.clear().put(HANDSHAKE.getBytes(StandardCharsets.UTF_8)));
+                            if (socketChannel == null) {
+                                Thread.sleep(100);
+                            } else {
+                                socketChannel.write(
+                                        sendBuffer.clear().put(HANDSHAKE.getBytes(StandardCharsets.UTF_8)).flip());
                                 socketChannel.read(receiveBuffer);
                                 if (!StandardCharsets.UTF_8.decode(receiveBuffer.flip()).toString().equals(HANDSHAKE)) {
                                     System.out.println("Connected program is not PeerToPeerCommandLineMessaging");
@@ -49,27 +51,32 @@ public class PeerToPeerCommandLineMessaging {
                                     outgoingMessageloop: while (true) {
                                         System.out.print("SEND: ");
                                         outgoingMessage = userInput.nextLine();
+                                        String messageData = MESSAGESIGNAL + outgoingMessage;
                                         if (outgoingMessage.length() > 0) {
                                             if (outgoingMessage.equalsIgnoreCase("quit")) {
-                                                sendBuffer.clear().put(EXITSIGNAL.getBytes(StandardCharsets.UTF_8));
+                                                sendBuffer.clear().put(EXITSIGNAL.getBytes(StandardCharsets.UTF_8))
+                                                        .flip();
                                                 while (sendBuffer.hasRemaining()) {
-                                                    sendBuffer.flip();
                                                     socketChannel.write(sendBuffer);
                                                 }
                                                 System.out.println("Quitting...");
                                                 break mainloop;
+                                            } else if (messageData
+                                                    .getBytes(StandardCharsets.UTF_8).length > sendBuffer.capacity()) {
+                                                System.out.println("Message too long");
+                                                System.out.print("SEND: ");
+                                                break outgoingMessageloop;
                                             } else {
-                                                sendBuffer.clear().put((MESSAGESIGNAL + outgoingMessage)
-                                                        .getBytes(StandardCharsets.UTF_8));
+                                                sendBuffer.clear().put((messageData)
+                                                        .getBytes(StandardCharsets.UTF_8)).flip();
                                                 while (sendBuffer.hasRemaining()) {
-                                                    sendBuffer.flip();
                                                     socketChannel.write(sendBuffer);
                                                 }
                                                 System.out.println();
                                                 break outgoingMessageloop;
                                             }
                                         } else {
-                                            System.out.println("You cannot send an empty message, try again");
+                                            System.out.println("Cannot send an empty message, try again");
                                             continue outgoingMessageloop;
                                         }
                                     }
@@ -84,8 +91,22 @@ public class PeerToPeerCommandLineMessaging {
                                         receiveBuffer.flip();
                                         incomingMessage = StandardCharsets.UTF_8.decode(receiveBuffer).toString();
                                         receiveBuffer.clear();
-                                        System.out.print(incomingMessage);
-                                        System.out.println();
+                                        if (!incomingMessage.isEmpty()) {
+                                            switch (incomingMessage.substring(0, 1)) {
+                                                case EXITSIGNAL -> {
+                                                    System.out.println("Connection closed at the other end");
+                                                    socketChannel.close();
+                                                    System.out.println("Waiting for new connections...");
+                                                    continue innerloop;
+                                                }
+                                                case MESSAGESIGNAL -> {
+                                                    System.out
+                                                            .print(incomingMessage.substring(1,
+                                                                    incomingMessage.length()));
+                                                    System.out.println();
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 
@@ -96,6 +117,85 @@ public class PeerToPeerCommandLineMessaging {
                     }
                 }
                 case "2" -> {
+                    try (SocketChannel socketChannel = SocketChannel.open()) {
+                        socketChannel.connect(new InetSocketAddress("localhost", PORT));
+                        socketChannel.finishConnect();
+                        socketChannel.read(receiveBuffer);
+                        if (!StandardCharsets.UTF_8.decode(receiveBuffer.flip()).toString().equals(HANDSHAKE)) {
+                            System.out.println("Connected program is not PeerToPeerCommandLineMessaging");
+                            System.out.println("Disconnecting...");
+                            socketChannel.close();
+                            System.out.println("Disconnected");
+                            System.out.println("Quiting");
+                            break mainloop;
+                        }
+                        socketChannel.write(sendBuffer.clear().put(HANDSHAKE.getBytes(StandardCharsets.UTF_8)).flip());
+                        System.out.println("Connected...");
+                        System.out.println(
+                                "Enter your message and hit enter. if you want to quit, simply type 'quit'");
+                        System.out.println("Waiting for first message from server...");
+
+                        while (true) {
+                            System.out.print("RECEIVE: ");
+                            int bytesRead = socketChannel.read(receiveBuffer.clear());
+                            if (bytesRead < 0) {
+                                System.out.println("Connection closed at the other end");
+                                break mainloop;
+                            } else {
+                                receiveBuffer.flip();
+                                incomingMessage = StandardCharsets.UTF_8.decode(receiveBuffer).toString();
+                                receiveBuffer.clear();
+                                if (!incomingMessage.isEmpty()) {
+                                    switch (incomingMessage.substring(0, 1)) {
+                                        case EXITSIGNAL -> {
+                                            System.out.println("Connection closed at the other end");
+                                            socketChannel.close();
+                                            break mainloop;
+                                        }
+                                        case MESSAGESIGNAL -> {
+                                            System.out.print(incomingMessage.substring(1, incomingMessage.length()));
+                                            System.out.println();
+                                        }
+                                    }
+                                }
+                            }
+
+                            outgoingMessageloop: while (true) {
+                                System.out.print("SEND: ");
+                                outgoingMessage = userInput.nextLine();
+                                String messageData = MESSAGESIGNAL + outgoingMessage;
+                                if (outgoingMessage.length() > 0) {
+                                    if (outgoingMessage.equalsIgnoreCase("quit")) {
+                                        sendBuffer.clear().put(EXITSIGNAL.getBytes(StandardCharsets.UTF_8)).flip();
+                                        while (sendBuffer.hasRemaining()) {
+                                            socketChannel.write(sendBuffer);
+                                        }
+                                        System.out.println("Quitting...");
+                                        break mainloop;
+                                    } else if (messageData.getBytes(StandardCharsets.UTF_8).length > sendBuffer
+                                            .capacity()) {
+                                        System.out.println("Message too long");
+                                        System.out.print("SEND: ");
+                                        break outgoingMessageloop;
+                                    } else {
+                                        sendBuffer.clear().put((messageData)
+                                                .getBytes(StandardCharsets.UTF_8)).flip();
+                                        while (sendBuffer.hasRemaining()) {
+                                            socketChannel.write(sendBuffer);
+                                        }
+                                        System.out.println();
+                                        break outgoingMessageloop;
+                                    }
+                                } else {
+                                    System.out.println("Cannot send an empty message, try again");
+                                    continue outgoingMessageloop;
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.out.println("An error occured while connecting to server");
+                        break mainloop;
+                    }
                 }
                 default -> {
                     System.out.println("Please enter a '1' or '2'");
