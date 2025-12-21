@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Scanner;
@@ -55,22 +56,23 @@ public class SimpleWebContentDownloader {
     public static void handleImage(URLConnection connection, String imageType) {
         Path img = Paths.get("downloadedImage." + imageType);
         int fileSize = connection.getContentLength();
-        if(fileSize <= 0){
+        if (fileSize <= 0) {
             System.out.println("The was an error with the server response");
         }
         System.out.println("Image size: " + fileSize + "bytes");
         System.out.println("Image type: " + imageType);
-        byte[] bytes = new byte[1024];
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
         try (InputStream inputStream = connection.getInputStream();
                 FileOutputStream fileOutput = new FileOutputStream(img.toFile())) {
             int bytesRead;
             int bytesSavedToFile = 0;
-            while ((bytesRead = inputStream.read(bytes)) != -1) {
-                for (int i = 0; i < bytesRead; i++) {
-                    fileOutput.write(bytes[i]);
-                    bytesSavedToFile++;
-                    printProgress(bytesSavedToFile, fileSize);
-                }
+            while ((bytesRead = inputStream.read(buffer.clear().array())) != -1) {
+                buffer.position(bytesRead).flip();
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                fileOutput.write(bytes);
+                bytesSavedToFile += bytesRead;
+                printProgress(bytesSavedToFile, fileSize);
             }
             System.out.println("Image downloaded: " + img.toAbsolutePath());
         } catch (IOException e) {
