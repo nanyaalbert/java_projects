@@ -34,9 +34,10 @@ public class SecureFileSharingServerWithEncryption {
     private static final String HANDSHAKE_STRING = "SecureFileSharingHandshake";
     private static Path serverDownloadPath = Paths.get(System.getProperty("user.home"),
             "SecureFileSharingServerWithEncryption");
+    private static Path serverTempPath = Paths.get(System.getProperty("user.home"), "SecureFileSharingServerWithEncryptionTemp");
+    
     private enum Progress {
         JUST_CONNECTED,
-        READING_COMMAND,
         READING_FILENAMELENGTH,
         READING_FILESIZE,
         READING_FILENAME,
@@ -49,7 +50,8 @@ public class SecureFileSharingServerWithEncryption {
         WRITING_FILENAME,
         WRITING_FILEDATA,
         WRITING_INFORMATION,        
-        WRITING_HANDSHAKE
+        WRITING_HANDSHAKE,
+        VALID_HANDSHAKE
     }
 
     public static void main(String[] args) {
@@ -86,13 +88,13 @@ public class SecureFileSharingServerWithEncryption {
                     if (!key.isValid())
                         continue;
                     
-                    ByteBuffer handShakeBuffer = ByteBuffer.allocate(1024);
-                    ByteBuffer sendBuffer = ByteBuffer.allocate(1024 * 1024);
-                    ByteBuffer receiveBuffer = ByteBuffer.allocate(1024 * 1024);
-                    ByteBuffer commandBuffer = ByteBuffer.allocate(4);
-                    ByteBuffer fileNameLengthBuffer = ByteBuffer.allocate(4);
-                    ByteBuffer handShakeLength = ByteBuffer.allocate(4);
-                    ByteBuffer fileSizeBuffer = ByteBuffer.allocate(8);
+                    // ByteBuffer handShakeBuffer = ByteBuffer.allocate(1024);
+                    // ByteBuffer sendBuffer = ByteBuffer.allocate(1024 * 1024);
+                    // ByteBuffer receiveBuffer = ByteBuffer.allocate(1024 * 1024);
+                    // ByteBuffer commandBuffer = ByteBuffer.allocate(4);
+                    // ByteBuffer fileNameLengthBuffer = ByteBuffer.allocate(4);
+                    // ByteBuffer handShakeLength = ByteBuffer.allocate(4);
+                    // ByteBuffer fileSizeBuffer = ByteBuffer.allocate(8);
 
                     if (key.isAcceptable()) {
                         ServerSocketChannel readyServer = (ServerSocketChannel) key.channel();
@@ -100,6 +102,8 @@ public class SecureFileSharingServerWithEncryption {
                         clientChannel.configureBlocking(false);
                         CurrentSession currentSession = new CurrentSession();
                         currentSession.progressState = Progress.JUST_CONNECTED;
+                        currentSession.handShakeSendBuffer = ByteBuffer.wrap(HANDSHAKE_STRING.getBytes(StandardCharsets.UTF_8));
+                        currentSession.handShakeSendLengthBuffer.putInt(currentSession.handShakeSendBuffer.capacity());
                         clientChannel.register(selector, SelectionKey.OP_READ, currentSession);
                         System.out.println("Client " + clientChannel.getRemoteAddress() + " just connected");
                     }
@@ -107,13 +111,28 @@ public class SecureFileSharingServerWithEncryption {
                     if (key.isReadable()) {
                         SocketChannel readyClient = (SocketChannel) key.channel();
                         CurrentSession keySession = (CurrentSession) key.attachment();
-                        readyClient.read(commandBuffer.clear());
+                        readyClient.read(keySession.commandBuffer);
                         int command;
-                        if(commandBuffer.remaining() >= 4){
-                            command = commandBuffer.getInt();
-                        }else continue;                        
-
-                        if(keySession.progressState == Progress.JUST_CONNECTED){}
+                        if(keySession.commandBuffer.remaining() >= 4){
+                            command = keySession.commandBuffer.getInt();
+                        }else continue; 
+                        
+                        switch(keySession.progressState){
+                            case Progress.JUST_CONNECTED -> {
+                                writeHandshake(key);
+                                readHandshake(key);
+                            }
+                            case Progress.READING_HANDSHAKE -> {
+                                readHandshake(key);
+                            }
+                            case Progress.VALID_HANDSHAKE -> {
+                                if(command == FILE_SEND_REQUEST){}
+                                if(command == FILE_UPLOAD_REQUEST){}
+                                if(command == FILE_LIST_REQUEST){}
+                                
+                            }
+                                
+                        }
 
                         if (command == FILE_SEND_REQUEST) {
                             ByteBuffer[] details = { fileNameLengthBuffer, fileSizeBuffer };
@@ -163,91 +182,148 @@ public class SecureFileSharingServerWithEncryption {
 
     }
 
-    private static void readHandshake(SelectionKey key){
-        int bytesRead;
+    private static void readHandshake(SelectionKey key) throws IOException{
+        SocketChannel clientChannel = (SocketChannel) key.channel();
+        CurrentSession keySession = (CurrentSession) key.attachment();
+        int handShakeLength;
+        try {
+            if(keySession.handShakeReceiveLengthBuffer.remaining() != keySession.handShakeReceiveLengthBuffer.capacity()){
+                int bytesRead;
+                bytesRead = clientChannel.read(keySession.handShakeReceiveLengthBuffer);
+                if(bytesRead < 0){
+                    System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
+                    cancelKey(key);
+                }else if(bytesRead > 0 && keySession.handShakeReceiveLengthBuffer.remaining() == 0){
+                    keySession.progressState = Progress.READING_HANDSHAKE;
+                    keySession.handShakeReceiveBuffer = ByteBuffer.allocate(keySession.handShakeReceiveLengthBuffer.getInt());                
+                }
+            }
+
+            if(keySession.progressState == Progress.READING_HANDSHAKE){
+                int bytesRead;
+                handShakeLength = keySession.handShakeReceiveLengthBuffer.getInt();
+                if(keySession.handShakeReceiveBuffer.remaining() != handShakeLength){
+                    bytesRead = clientChannel.read(keySession.handShakeReceiveBuffer);
+                    if(bytesRead < 0){
+                        System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
+                        cancelKey(key);
+                    }else if(bytesRead > 0 && keySession.handShakeReceiveBuffer.position() == handShakeLength){
+                        keySession.handShakeReceiveBuffer.flip();
+                        String receivedHandShake = StandardCharsets.UTF_8.decode(keySession.handShakeReceiveBuffer).toString();
+                        if(receivedHandShake.equals(HANDSHAKE_STRING)){
+                            keySession.progressState = Progress.VALID_HANDSHAKE;
+                            keySession.handShakeReceiveBuffer.clear();
+                            keySession.handShakeReceiveLengthBuffer.clear();
+                        }else cancelKey(key);                        
+                    }
+                }
+                
+            }
+        } catch (Exception e) {
+            System.err.println("An error occured with the client " + clientChannel.getRemoteAddress());
+        }
+
+    }
+
+    private static void writeHandshake(SelectionKey key) throws IOException{
+        long bytesWritten;
         SocketChannel clientChannel = (SocketChannel) key.channel();
         CurrentSession keySession = (CurrentSession) key.attachment();
         try {
-            bytesRead = clientChannel.read(keySession.handShakeBuffer.clear());
+            ByteBuffer[] handshakeBufferArrs = {keySession.handShakeSendLengthBuffer, keySession.handShakeSendBuffer};
+            bytesWritten = clientChannel.write(handshakeBufferArrs);
+            if(bytesWritten < 0){
+                System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
+                cancelKey(key);
+            }else if(bytesWritten > 0 && !keySession.handShakeSendBuffer.hasRemaining()){
+                keySession.handShakeSendLengthBuffer.clear();
+                keySession.handShakeSendBuffer.clear();
+                key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+            }else if(bytesWritten == 0) {
+                key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+            }
         } catch (Exception e) {
-            // TODO: handle exception
+            System.err.println("An error occured with the client " + clientChannel.getRemoteAddress());
         }
-
-    }
-
-    private static void writeHandshake(SelectionKey key){
         
     }
 
-    private static boolean performHandshake(SocketChannel clientChannel, ByteBuffer[] buffersArr) {
-        ByteBuffer sendBuffer = buffersArr[0];
-        ByteBuffer receiveBuffer = buffersArr[1];
-        try {
-            int bytesWritten = clientChannel
-                    .write(sendBuffer.clear().put(HANDSHAKE_STRING.getBytes(StandardCharsets.UTF_8)).flip());
-            if (bytesWritten < 0) {
-                System.err.println(
-                        "Client " + clientChannel.getRemoteAddress() + " closed the connection, handshake failed");
-                return false;
-            } else if (bytesWritten > 0) {
-                int bytesRead = clientChannel.read(receiveBuffer.clear());
-                if (bytesRead < 0) {
-                    System.err.println(
-                            "Client " + clientChannel.getRemoteAddress() + " closed the connection, handshake failed");
-                    return false;
-                } else if (bytesRead > 0) {
-                    if (StandardCharsets.UTF_8.decode(receiveBuffer.flip()).toString().equals(HANDSHAKE_STRING))
-                        return true;
-                    else {
-                        System.err.println("Client " + clientChannel.getRemoteAddress()
-                                + " is not a valid SimplesecureFileSharingClient");
-                        return false;
-                    }
-                }
-            }
-            return false;
-        } catch (IOException e) {
-            System.err.println("An error occured during handshake with client" + e.getMessage());
-            return false;
-        }
-    }
-
-    private static long serverSendFilesList(SocketChannel clientChannel, ByteBuffer[] buffersArr) {
-        ByteBuffer commandBuffer = buffersArr[0];
-        ByteBuffer sendBuffer = buffersArr[2];
+    private static void serverSendFilesList(SelectionKey key) throws IOException {
+        // Resume work here
+        // Change the logic to use tenm file, file channels and channel to channel transfer
+        // This should improver performance under heavy load.
         long bytesWritten;
-        String filesListString;
-        commandBuffer.clear().putInt(FILE_LIST).flip();
-        try (Stream<Path> files = Files.list(serverDownloadPath)) {
-            if (files.filter(Files::isRegularFile).findAny().isPresent()) {
-                filesListString = files.filter(Files::isRegularFile).map(Path::getFileName).map(Path::toString)
-                        .collect(Collectors.joining("\n"));
-                sendBuffer.clear().put(filesListString.getBytes(StandardCharsets.UTF_8)).flip();
-                ByteBuffer[] buffers = { commandBuffer, sendBuffer };
+        SocketChannel clientChannel = (SocketChannel) key.channel();
+        CurrentSession keySession = (CurrentSession) key.attachment();
+        keySession.commandBuffer.putInt(FILE_LIST).flip();
+        if(keySession.commandBuffer.hasRemaining()) return;
+        if(keySession.fileListString.isEmpty()){
+            try (Stream<Path> files = Files.list(serverDownloadPath)) {
+                if (files.filter(Files::isRegularFile).findAny().isPresent()) {
+                    keySession.fileListString = files.filter(Files::isRegularFile).map(Path::getFileName).map(Path::toString)
+                            .collect(Collectors.joining("\n"));
+                    keySession.fileListStringBuffer = ByteBuffer.wrap(keySession.fileListString.getBytes(StandardCharsets.UTF_8));
+                ByteBuffer[] buffers = { keySession.commandBuffer, keySession.fileListStringBuffer };
                 try {
                     bytesWritten = clientChannel.write(buffers);
-                    return bytesWritten;
+                    if(bytesWritten < 0){
+                    System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
+                    cancelKey(key);
+                    }else if(bytesWritten > 0 && !keySession.fileListStringBuffer.hasRemaining()){
+                        keySession.commandBuffer.clear();
+                        keySession.fileListStringBuffer.clear();
+                        key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                    }else if(bytesWritten == 0) {
+                        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                    }
                 } catch (IOException e) {
                     System.err.println(
                             "An error occured while trying to send file list to " + clientChannel.getRemoteAddress());
-                    return bytesWritten = -1;
                 }
+                }else {
+                    keySession.fileListString = "No files available on server";
+                    keySession.fileListStringBuffer = ByteBuffer.wrap(keySession.fileListString.getBytes(StandardCharsets.UTF_8));
+                    ByteBuffer[] buffers = { keySession.commandBuffer, keySession.fileListStringBuffer };
+                    try {
+                        bytesWritten = clientChannel.write(buffers);
+                        if(bytesWritten < 0){
+                            System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
+                            cancelKey(key);
+                        }else if(bytesWritten > 0 && !keySession.fileListStringBuffer.hasRemaining()){
+                            keySession.commandBuffer.clear();
+                            keySession.fileListStringBuffer.clear();
+                            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                        }else if(bytesWritten == 0) {
+                            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                        }
+                    } catch (IOException e) {
+                        System.err.println(
+                                "An error occured while trying to send file list to " + clientChannel.getRemoteAddress());
+                    }
+                }          
+            } catch (Exception e) {
+                System.err.println("An error occured while trying to get file list " + e.getMessage());
             }
-            filesListString = "No files available on server";
-            sendBuffer.clear().put(filesListString.getBytes(StandardCharsets.UTF_8)).flip();
-            ByteBuffer[] buffers = { commandBuffer, sendBuffer };
+        }else{
+            ByteBuffer[] buffers = { keySession.commandBuffer, keySession.fileListStringBuffer };
             try {
                 bytesWritten = clientChannel.write(buffers);
-                return bytesWritten;
+                if(bytesWritten < 0){
+                    System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
+                    cancelKey(key);
+                }else if(bytesWritten > 0 && !keySession.fileListStringBuffer.hasRemaining()){
+                    keySession.commandBuffer.clear();
+                    keySession.fileListStringBuffer.clear();
+                    keySession.fileListString = "";
+                    key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                }else if(bytesWritten == 0) {
+                    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                }
             } catch (IOException e) {
                 System.err.println(
                         "An error occured while trying to send file list to " + clientChannel.getRemoteAddress());
-                return bytesWritten = -1;
             }
-        } catch (Exception e) {
-            System.err.println("An error occured while trying to get file list " + e.getMessage());
         }
-        return 0L;
     }
 
     private static long serverSendFile(String fileName, SocketChannel clientChannel, ByteBuffer[] buffersArr) {
@@ -347,17 +423,28 @@ public class SecureFileSharingServerWithEncryption {
         }
     }
 
+    // private static byte[] encrypt(){}
+
+    // private static byte[] decrypt(){}
+
     private static class CurrentSession{
         Progress progressState;
-        static ByteBuffer handShakeBuffer = ByteBuffer.allocate(1024);
-        static ByteBuffer sendBuffer = ByteBuffer.allocate(1024 * 1024);
-        static ByteBuffer receiveBuffer = ByteBuffer.allocate(1024 * 1024);
-        static ByteBuffer commandBuffer = ByteBuffer.allocate(4);
-        static ByteBuffer fileNameLengthBuffer = ByteBuffer.allocate(4);
-        static ByteBuffer handShakeLength = ByteBuffer.allocate(4);
-        static ByteBuffer fileSizeBuffer = ByteBuffer.allocate(8);
-        static ByteBuffer fileNameBuffer;
-        static ByteBuffer fileDataBuffer;
+        ByteBuffer handShakeSendBuffer;
+        ByteBuffer handShakeReceiveBuffer;
+        ByteBuffer sendBuffer = ByteBuffer.allocate(1024 * 1024);
+        ByteBuffer receiveBuffer = ByteBuffer.allocate(1024 * 1024);
+        ByteBuffer commandBuffer = ByteBuffer.allocate(4);
+        ByteBuffer fileNameLengthBuffer = ByteBuffer.allocate(4);
+        ByteBuffer handShakeSendLengthBuffer = ByteBuffer.allocate(4);
+        ByteBuffer handShakeReceiveLengthBuffer = ByteBuffer.allocate(4);
+        ByteBuffer fileSizeBuffer = ByteBuffer.allocate(8);
+        ByteBuffer fileNameBuffer;
+        ByteBuffer fileDataBuffer;
+        ByteBuffer fileListStringBuffer;
+        String fileListString = "";
+        FileChannel fileChannel;
+        long fileTransferCurrentPosition;
+        long fileTransferRemainingBytes;
 
     }
 
