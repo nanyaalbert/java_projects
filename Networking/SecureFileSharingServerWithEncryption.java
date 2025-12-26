@@ -1,7 +1,9 @@
 import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.channels.FileChannel;
@@ -14,24 +16,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.Iterator;
+import java.util.Scanner;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class SecureFileSharingServerWithEncryption {
     private static final int PORT = 1234;
-    private static final int INFORMATION = 0;
+    private static final int NO_COMMAND = 0;
     private static final int FILE_SEND_REQUEST = 1;
     private static final int FILE_UPLOAD_REQUEST = 2;
     private static final int FILE_DOWNLOAD = 3;
     private static final int FILE_LIST_REQUEST = 4;
     private static final int FILE_LIST = 5;
-    private static final int HANDSHAKE = 6;
     private static final long MAX_FILE_SIZE = 1024 * 1024 * 1024;
     private static final long MAX_ENCRYPTED_FILE_SIZE = MAX_FILE_SIZE + 64; // 64 bytes safety margin
     private static final int MAX_FILE_NAME_LENGTH = 512;
     private static final int MAX_ENCRYPTED_FILE_NAME_LENGTH = MAX_FILE_NAME_LENGTH + 64; // 64 bytes safety margin
-    private static final String HANDSHAKE_STRING = "SecureFileSharingHandshake";
+    private static String HANDSHAKE_STRING = "SecureFileSharingHandShake";
     private static long TEMPFILENUMBER = 0;
     private static Path serverDownloadPath = Paths.get(System.getProperty("user.home"),
             "SecureFileSharingServerWithEncryption");
@@ -40,18 +44,12 @@ public class SecureFileSharingServerWithEncryption {
 
     private enum Progress {
         JUST_CONNECTED,
-        READING_FILENAMELENGTH,
-        READING_FILESIZE,
-        READING_FILENAME,
+        READY_TO_READ_HANDSHAKE,
         READING_FILEDATA,
         READING_FILEDETAILS,
         READING_INFORMATION,
         READING_HANDSHAKE,
         READING_FILELIST,
-        WRITING_COMMAND,
-        WRITING_FILENAMElENGTH,
-        WRITING_FILESIZE,
-        WRITING_FILENAME,
         WRITING_FILEDATA,
         WRITING_FILEDETAILS,
         WRITING_INFORMATION,
@@ -62,6 +60,7 @@ public class SecureFileSharingServerWithEncryption {
     }
 
     public static void main(String[] args) {
+        server();
     }
 
     private static void server() {
@@ -77,10 +76,14 @@ public class SecureFileSharingServerWithEncryption {
 
         try (ServerSocketChannel serverChannel = ServerSocketChannel.open(); Selector selector = Selector.open()) {
             serverChannel.configureBlocking(false);
-            InetSocketAddress serverAddress = new InetSocketAddress("localhost", PORT);
+            InetSocketAddress serverAddress = new InetSocketAddress("0.0.0.0", PORT);
             serverChannel.bind(serverAddress);
-            System.out.println("Server listening on port " + PORT);
-            System.out.println("Waiting for connections...");
+            printConnectionGuide();
+            Scanner userInput = new Scanner(System.in);
+            System.out.println("Please setup a password for the server.");
+            System.out.println("Enter password: ");
+            HANDSHAKE_STRING += userInput.nextLine();
+            System.out.println("\nWaiting for connections...");
             serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
             while (true) {
@@ -94,14 +97,6 @@ public class SecureFileSharingServerWithEncryption {
                     iterator.remove();
                     if (!key.isValid())
                         continue;
-
-                    // ByteBuffer handShakeBuffer = ByteBuffer.allocate(1024);
-                    // ByteBuffer sendBuffer = ByteBuffer.allocate(1024 * 1024);
-                    // ByteBuffer receiveBuffer = ByteBuffer.allocate(1024 * 1024);
-                    // ByteBuffer commandBuffer = ByteBuffer.allocate(4);
-                    // ByteBuffer fileNameLengthBuffer = ByteBuffer.allocate(4);
-                    // ByteBuffer handShakeLength = ByteBuffer.allocate(4);
-                    // ByteBuffer fileSizeBuffer = ByteBuffer.allocate(8);
 
                     if (key.isAcceptable()) {
                         ServerSocketChannel readyServer = (ServerSocketChannel) key.channel();
@@ -121,30 +116,39 @@ public class SecureFileSharingServerWithEncryption {
                         CurrentSession keySession = (CurrentSession) key.attachment();
 
                         switch (keySession.progressState) { // remember to add all the other cases for this enum
-                            case Progress.JUST_CONNECTED -> {
-                                writeHandshake(key);
-                                readHandshake(key);
+                            case Progress.JUST_CONNECTED, Progress.WRITING_HANDSHAKE -> {
+                                writeHandShake(key);
                             }
-                            case Progress.READING_HANDSHAKE -> {
-                                readHandshake(key);
+                            case Progress.READY_TO_READ_HANDSHAKE, Progress.READING_HANDSHAKE -> {
+                                readHandShake(key);
                             }
                             case Progress.VALID_HANDSHAKE -> {
-                                readyClient.read(keySession.commandBuffer);
-                                int command;
-                                if (keySession.commandBuffer.remaining() >= 4) {
-                                    command = keySession.commandBuffer.getInt();
+                                if (keySession.command == NO_COMMAND) {
+                                    readyClient.read(keySession.commandBuffer);
+                                }
+                                if (keySession.command == NO_COMMAND
+                                        && keySession.commandBuffer.position() == keySession.commandBuffer.capacity()) {
+                                    keySession.command = keySession.commandBuffer.getInt();
                                 } else
                                     continue;
-                                if (command == FILE_SEND_REQUEST) {
+                                if (keySession.command == FILE_SEND_REQUEST) {
                                     serverSendFile(key);
-
                                 }
-                                if (command == FILE_UPLOAD_REQUEST) {
+                                if (keySession.command == FILE_UPLOAD_REQUEST) {
+                                    serverReceiveFile(key);
                                 }
-                                if (command == FILE_LIST_REQUEST) {
+                                if (keySession.command == FILE_LIST_REQUEST) {
                                     serverSendFilesList(key);
                                 }
-
+                            }
+                            case Progress.WRITING_FILEDETAILS, Progress.WRITING_FILEDATA -> {
+                                serverSendFile(key);
+                            }
+                            case Progress.READING_FILEDATA -> {
+                                serverReceiveFile(key);
+                            }
+                            case Progress.FILE_LIST_SAVED_TO_DISK, Progress.WRITING_FILELIST -> {
+                                serverSendFilesList(key);
                             }
 
                         }
@@ -159,7 +163,7 @@ public class SecureFileSharingServerWithEncryption {
 
     }
 
-    private static void readHandshake(SelectionKey key) throws IOException {
+    private static void readHandShake(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         CurrentSession keySession = (CurrentSession) key.attachment();
         int handShakeLength;
@@ -206,20 +210,26 @@ public class SecureFileSharingServerWithEncryption {
 
     }
 
-    private static void writeHandshake(SelectionKey key) throws IOException {
+    private static void writeHandShake(SelectionKey key) throws IOException {
         long bytesWritten;
         SocketChannel clientChannel = (SocketChannel) key.channel();
         CurrentSession keySession = (CurrentSession) key.attachment();
+        int prevOps = key.interestOps();
+        key.interestOps(0);
         try {
             ByteBuffer[] handshakeBufferArrs = { keySession.handShakeSendLengthBuffer, keySession.handShakeSendBuffer };
             bytesWritten = clientChannel.write(handshakeBufferArrs);
             if (bytesWritten < 0) {
                 System.err.println("Client " + clientChannel.getRemoteAddress() + " closed the connection");
                 cancelKey(key);
+            } else if (bytesWritten > 0 && keySession.handShakeSendBuffer.hasRemaining()) {
+                keySession.progressState = Progress.WRITING_HANDSHAKE;
             } else if (bytesWritten > 0 && !keySession.handShakeSendBuffer.hasRemaining()) {
                 keySession.handShakeSendLengthBuffer.clear();
                 keySession.handShakeSendBuffer.clear();
                 key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                key.interestOps(prevOps);
+                keySession.progressState = Progress.READY_TO_READ_HANDSHAKE;
             } else if (bytesWritten == 0) {
                 key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
             }
@@ -433,40 +443,120 @@ public class SecureFileSharingServerWithEncryption {
         }
     }
 
-    private static void serverReceiveFileData() {
-    }
+    private static void serverReceiveFile(SelectionKey key) throws IOException {
+        int bytesRead;
+        SocketChannel readyClient = (SocketChannel) key.channel();
+        CurrentSession keySession = (CurrentSession) key.attachment();
 
-    private static void serverSaveFileData(String fileName, ByteBuffer fileDataBuffer) {
-        Path filePath = serverDownloadPath.resolve(fileName);
-        int lastDotIndex = fileName.lastIndexOf(".");
-        String fileExtension = fileName.substring(lastDotIndex);
-        String fileNameWithouINFORMATIONension = fileName.substring(0, lastDotIndex);
-        int counter = 0;
-        while (true) {
-            if (Files.exists(filePath)) {
-                counter++;
-                filePath = serverDownloadPath
-                        .resolve(fileNameWithouINFORMATIONension + "(" + counter + ")" + fileExtension);
-            } else
-                break;
+        if (keySession.fileNameLengthBuffer.position() < 4) {
+            bytesRead = readyClient.read(keySession.fileNameLengthBuffer);
+            if (bytesRead < 0) {
+                cancelKey(key);
+                return;
+            }
+            if (keySession.fileNameLengthBuffer.position() < 4)
+                return;
+        }
+        if (keySession.fileNameLengthBuffer.position() == 4
+                && keySession.fileNameLength == 0) {
+            keySession.fileNameLength = keySession.fileNameLengthBuffer.getInt();
+        }
+        if (keySession.fileSizeBuffer.position() < 8) {
+            bytesRead = readyClient.read(keySession.fileSizeBuffer);
+            if (bytesRead < 0) {
+                cancelKey(key);
+                return;
+            }
+            if (keySession.fileSizeBuffer.position() < 8)
+                return;
+        }
+        if (keySession.fileNameLength > 0) {
+            keySession.fileNameBuffer = ByteBuffer.allocate(keySession.fileNameLength);
+            bytesRead = readyClient.read(keySession.fileNameBuffer);
+            if (bytesRead < 0) {
+                cancelKey(key);
+                return;
+            }
+            if (keySession.fileNameBuffer.position() < keySession.fileNameLength)
+                return;
+        }
+        if (keySession.fileNameBuffer.position() == keySession.fileNameLength
+                && keySession.fileName.isEmpty()) {
+            keySession.fileNameBuffer.flip();
+            keySession.fileName = new String(keySession.fileNameBuffer.array(),
+                    StandardCharsets.UTF_8);
+        }
+        if (keySession.fileSizeBuffer.position() == 8
+                && keySession.fileSize == 0) {
+            keySession.fileSize = keySession.fileSizeBuffer.getLong();
+        }
+        if (!keySession.fileName.isEmpty() && keySession.fileSize != 0) {
+            Path filePath = serverDownloadPath.resolve(keySession.fileName);
+            int lastDotIndex = keySession.fileName.lastIndexOf(".");
+            keySession.fileExtension = keySession.fileName.substring(lastDotIndex);
+            keySession.fileNameWithoutExtension = keySession.fileName.substring(0, lastDotIndex);
+            if (keySession.progressState != Progress.READING_FILEDATA) {
+                int counter = 0;
+                while (true) {
+                    if (Files.exists(filePath)) {
+                        counter++;
+                        filePath = serverDownloadPath
+                                .resolve(keySession.fileNameWithoutExtension + "(" + counter + ")"
+                                        + keySession.fileExtension);
+                        keySession.fileName = filePath.getFileName().toString();
+                        int lastDotIndexNew = filePath.getFileName().toString().lastIndexOf(".");
+                        keySession.fileExtension = filePath.getFileName().toString().substring(lastDotIndexNew);
+                        keySession.fileNameWithoutExtension = filePath.getFileName().toString().substring(0,
+                                lastDotIndexNew);
+                    } else {
+                        try {
+                            Files.createFile(filePath);
+                            keySession.progressState = Progress.READING_FILEDATA;
+                        } catch (Exception e) {
+                            System.err.println("Failed to create file: " + filePath.toAbsolutePath());
+                        }
+                        break;
+                    }
+                }
+            }
+            if (keySession.progressState == Progress.READING_FILEDATA) {
+                if (!keySession.fileChannel.isOpen()) {
+                    try {
+                        keySession.fileChannel = FileChannel.open(filePath, StandardOpenOption.WRITE);
+                    } catch (Exception e) {
+                        System.err.println(
+                                "An error occured while trying to open channel on " + filePath.toAbsolutePath());
+                        return;
+                    }
+                }
+                if (keySession.fileChannel.isOpen()) {
+                    long bytesReadToFile;
+                    bytesReadToFile = keySession.fileChannel.transferFrom(readyClient,
+                            keySession.c2cTransferCurrentPosition, keySession.fileSize);
+                    if (bytesReadToFile < 0) {
+                        keySession.fileChannel.close();
+                        cancelKey(key);
+                        return;
+                    }
+                    if (bytesReadToFile > 0) {
+                        keySession.c2cTransferCurrentPosition += bytesReadToFile;
+                        if (keySession.c2cTransferCurrentPosition == keySession.fileSize) {
+                            System.out.println("File transfer completed for " + keySession.fileName);
+                            try {
+                                keySession.fileChannel.close();
+                            } catch (Exception e) {
+                                System.err.println("Failed to close file channel for " + keySession.fileName);
+                            }
+                            resetCurrentSessionObj(keySession);
+                        }
+                    }
+                    if (bytesReadToFile == 0) {
+                        key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+                    }
+                }
+            }
         }
 
-        try (AsynchronousFileChannel asyncfileChannel = AsynchronousFileChannel.open(filePath,
-                StandardOpenOption.WRITE)) {
-            asyncfileChannel.write(fileDataBuffer, 0, null, new CompletionHandler<Integer, Void>() {
-                @Override
-                public void completed(Integer result, Void attachment) {
-                    System.out.println(fileName + " was successfully saved");
-                }
-
-                @Override
-                public void failed(Throwable exc, Void attachment) {
-                    System.out.println(fileName + " could not be saved");
-                }
-            });
-        } catch (Exception e) {
-            System.err.println("An error occured while saving " + fileName + " to file.");
-        }
     }
 
     private static void cancelKey(SelectionKey key) {
@@ -476,6 +566,48 @@ public class SecureFileSharingServerWithEncryption {
         } catch (Exception e) {
             System.err.println("An error occured while trying to cancel key " + e.getMessage());
         }
+    }
+
+    private static void printConnectionGuide() {
+        String bestIP = null;
+        try {
+            Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
+            for (NetworkInterface netint : Collections.list(nets)) {
+                if (netint.isLoopback() || !netint.isUp() || netint.isVirtual())
+                    continue;
+
+                String name = netint.getDisplayName().toLowerCase();
+                if (name.contains("virtual") || name.contains("vmware") || name.contains("docker")
+                        || name.contains("vbox") || name.contains("vm"))
+                    continue;
+
+                Enumeration<InetAddress> inetAddresses = netint.getInetAddresses();
+                for (InetAddress inetAddr : Collections.list(inetAddresses)) {
+                    if (inetAddr instanceof Inet4Address) {
+                        bestIP = inetAddr.getHostAddress();
+                        break;
+                    }
+                }
+                if (bestIP != null)
+                    break;
+            }
+        } catch (Exception e) {
+            // Fallback to null logic handled below
+        }
+
+        System.out.println("\n-------------------------------------------");
+        System.out.println("SERVER INITIALIZED ON PORT: " + PORT);
+
+        if (bestIP != null) {
+            System.out.println("STATUS: Network Active");
+            System.out.println("-> Connect from other PCs on the same network via: " + bestIP);
+            System.out.println("-> Connect from THIS PC via:    localhost");
+        } else {
+            System.out.println("STATUS: Offline / No Network Found");
+            System.out.println("-> Only programs on THIS computer can connect.");
+            System.out.println("-> Use: localhost (127.0.0.1)");
+        }
+        System.out.println("-------------------------------------------\n");
     }
 
     // private static byte[] encrypt(){}
@@ -488,7 +620,6 @@ public class SecureFileSharingServerWithEncryption {
         keySession.handShakeReceiveBuffer = null;
         keySession.informationBuffer = null;
         keySession.fileNameBuffer = null;
-        keySession.fileDataBuffer = null;
         keySession.sendBuffer.clear();
         keySession.receiveBuffer.clear();
         keySession.commandBuffer.clear();
@@ -503,13 +634,15 @@ public class SecureFileSharingServerWithEncryption {
         keySession.fileDetailsBufferArr = null;
         keySession.fileChannel = null;
         keySession.fileListTempFile = null;
+        keySession.command = NO_COMMAND;
         keySession.fileListStringLength = 0;
         keySession.fileNameLength = 0;
         keySession.fileSize = 0;
         keySession.c2cTransferCurrentPosition = 0;
-        keySession.c2cTransferRemainingBytes = 0;
         keySession.information = "";
         keySession.fileName = "";
+        keySession.fileNameWithoutExtension = "";
+        keySession.fileExtension = "";
     }
 
     private static class CurrentSession {
@@ -518,7 +651,6 @@ public class SecureFileSharingServerWithEncryption {
         ByteBuffer handShakeReceiveBuffer = null;
         ByteBuffer informationBuffer = null;
         ByteBuffer fileNameBuffer = null;
-        ByteBuffer fileDataBuffer = null;
         ByteBuffer sendBuffer = ByteBuffer.allocate(1024 * 1024);
         ByteBuffer receiveBuffer = ByteBuffer.allocate(1024 * 1024);
         ByteBuffer commandBuffer = ByteBuffer.allocate(4);
@@ -533,14 +665,15 @@ public class SecureFileSharingServerWithEncryption {
         ByteBuffer[] fileDetailsBufferArr = null;
         FileChannel fileChannel = null;
         Path fileListTempFile = null;
+        int command = NO_COMMAND;
         int fileListStringLength = 0;
         int fileNameLength = 0;
         long fileSize = 0;
         long c2cTransferCurrentPosition = 0;
-        long c2cTransferRemainingBytes = 0;
         String information = "";
         String fileName = "";
-
+        String fileNameWithoutExtension = "";
+        String fileExtension = "";
     }
 
 }
