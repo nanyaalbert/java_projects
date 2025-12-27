@@ -16,12 +16,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.Scanner;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 
 public class SecureFileSharingServerWithEncryption {
     private static final int PORT = 1234;
@@ -41,6 +47,7 @@ public class SecureFileSharingServerWithEncryption {
             "SecureFileSharingServerWithEncryption");
     private static Path serverTempPath = Paths.get(System.getProperty("user.home"),
             "SecureFileSharingServerWithEncryptionTemp");
+    private static String ServerIPAdress;
 
     private enum Progress {
         JUST_CONNECTED,
@@ -84,7 +91,8 @@ public class SecureFileSharingServerWithEncryption {
             System.out.println("Enter password: ");
             HANDSHAKE_STRING += userInput.nextLine();
             System.out.println("\nWaiting for connections...");
-            serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+            CurrentSession serverKeySession = new CurrentSession();
+            serverChannel.register(selector, SelectionKey.OP_ACCEPT, serverKeySession);
 
             while (true) {
                 if (selector.select() == 0)
@@ -101,13 +109,17 @@ public class SecureFileSharingServerWithEncryption {
                     if (key.isAcceptable()) {
                         ServerSocketChannel readyServer = (ServerSocketChannel) key.channel();
                         SocketChannel clientChannel = readyServer.accept();
+                        CurrentSession keySession = (CurrentSession) key.attachment();
                         clientChannel.configureBlocking(false);
-                        CurrentSession currentSession = new CurrentSession();
-                        currentSession.progressState = Progress.JUST_CONNECTED;
-                        currentSession.handShakeSendBuffer = ByteBuffer
-                                .wrap(HANDSHAKE_STRING.getBytes(StandardCharsets.UTF_8));
-                        currentSession.handShakeSendLengthBuffer.putInt(currentSession.handShakeSendBuffer.capacity());
-                        clientChannel.register(selector, SelectionKey.OP_READ, currentSession);
+                        CurrentSession currentClientSession = new CurrentSession();
+                        currentClientSession.progressState = Progress.JUST_CONNECTED;
+                        byte[] encryptedHandShake = keySession
+                                .encrypt(HANDSHAKE_STRING.getBytes(StandardCharsets.UTF_8));
+                        currentClientSession.handShakeSendBuffer = ByteBuffer
+                                .wrap(encryptedHandShake);
+                        currentClientSession.handShakeSendLengthBuffer
+                                .putInt(currentClientSession.handShakeSendBuffer.capacity());
+                        clientChannel.register(selector, SelectionKey.OP_READ, currentClientSession);
                         System.out.println("Client " + clientChannel.getRemoteAddress() + " just connected");
                     }
 
@@ -163,6 +175,7 @@ public class SecureFileSharingServerWithEncryption {
 
     }
 
+    // resume implementing encryption/decryption here
     private static void readHandShake(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         CurrentSession keySession = (CurrentSession) key.attachment();
@@ -585,6 +598,7 @@ public class SecureFileSharingServerWithEncryption {
                 for (InetAddress inetAddr : Collections.list(inetAddresses)) {
                     if (inetAddr instanceof Inet4Address) {
                         bestIP = inetAddr.getHostAddress();
+                        ServerIPAdress = bestIP;
                         break;
                     }
                 }
@@ -674,6 +688,49 @@ public class SecureFileSharingServerWithEncryption {
         String fileName = "";
         String fileNameWithoutExtension = "";
         String fileExtension = "";
+
+        // Encryption and Decryption
+        private static final int KEY_SIZE = 256;
+        private static final int IV_SIZE = 12;
+        private static final int TAG_BIT_LENGTH = 128;
+        private String additionalData = "SERVER: " + ServerIPAdress + " PORT: " + PORT;
+        private byte[] additionalDataBytes = additionalData.getBytes();
+        private SecretKey secretKey;
+
+        private void encryptionKeySetup() throws Exception {
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(KEY_SIZE);
+            secretKey = keyGen.generateKey();
+        }
+
+        private byte[] encrypt(byte[] dataToEncrypt) throws Exception {
+            byte[] iv = new byte[IV_SIZE];
+            new SecureRandom().nextBytes(iv);
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            GCMParameterSpec spec = new GCMParameterSpec(TAG_BIT_LENGTH, iv);
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec);
+            cipher.updateAAD(additionalDataBytes);
+            byte[] cipherText = cipher.doFinal(dataToEncrypt);
+
+            return ByteBuffer.allocate(iv.length + cipherText.length).put(iv).put(cipherText).array();
+        }
+
+        private byte[] decrypt(byte[] encryptedData) throws Exception {
+            ByteBuffer buffer = ByteBuffer.wrap(encryptedData);
+            byte[] iv = new byte[IV_SIZE];
+            buffer.get(iv);
+            byte[] cipherText = new byte[buffer.remaining()];
+            buffer.get(cipherText);
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            GCMParameterSpec spec = new GCMParameterSpec(TAG_BIT_LENGTH, iv);
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec);
+            cipher.updateAAD(additionalDataBytes);
+
+            return cipher.doFinal(cipherText);
+
+        }
     }
 
 }
