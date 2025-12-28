@@ -1,0 +1,3 @@
+[submodule "Networking/secure_file_sharing_with_encryption"]
+	path = Networking/secure_file_sharing_with_encryption
+	url = https://github.com/nanyaalbert/secure_file_sharing_with_encryption
